@@ -1,1 +1,7 @@
 .claude/
+
+# Push server (Cloudflare Worker)
+worker/node_modules/
+worker/.wrangler/
+# Holds the VAPID private key — never commit
+worker/.dev.vars

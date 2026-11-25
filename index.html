@@ -93,6 +93,14 @@
       <h2 data-i18n="settings">Settings</h2>
       <div class="list settings">
         <div class="setting">
+          <span class="setting-label" data-i18n="reminders">Hourly reminder</span>
+          <div class="seg" data-setting="notify">
+            <button data-value="on" data-i18n="on">On</button>
+            <button data-value="off" data-i18n="off">Off</button>
+          </div>
+          <p id="notify-hint" class="hint setting-hint"></p>
+        </div>
+        <div class="setting">
           <span class="setting-label" data-i18n="appearance">Appearance</span>
           <div class="seg" data-setting="theme">
             <button data-value="system" data-i18n="themeSystem">System</button>
@@ -186,6 +194,16 @@
         <button type="submit" id="ask-ok" class="btn primary">OK</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- "When did you stop?" (after a check-in) -->
+  <dialog id="choice-dialog">
+    <h2 id="choice-title"></h2>
+    <div id="choice-list" class="choice-list"></div>
+    <div class="row">
+      <span class="spacer"></span>
+      <button type="button" id="choice-cancel" class="btn" data-i18n="cancel">Cancel</button>
+    </div>
   </dialog>
 
   <script src="app.js"></script>

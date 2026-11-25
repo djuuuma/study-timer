@@ -13,8 +13,15 @@
  * Duration = (end ?? now) - start - paused time, so the timer stays correct across
  * reloads, closed tabs, locked phones and restarts.
  */
-const APP_VERSION = '9'; // bump on every release; must match VERSION in service-worker.js
+const APP_VERSION = '10'; // bump on every release; must match VERSION in service-worker.js
 const KEY = 'session-timer.v1';
+
+// Hourly "Still studying?" reminders (see worker/). Locally the app talks to `wrangler dev`.
+const PUSH_SERVER = ['localhost', '127.0.0.1'].includes(location.hostname)
+  ? 'http://localhost:8787'
+  : ''; // set to the deployed worker URL
+const VAPID_PUBLIC_KEY = 'BB2VZoGjoQvRaLyzNXgNyCdL_gf5m9N2IOJQKLNRhneUbd6rfvpom9v_Yhyu3JUM6Xa3nT6YrwdFjTTobLSRN3w';
+const HOUR_MS = 3600000;
 const SETTINGS_KEY = 'session-timer.settings';
 const COLORS = ['#4f8cff', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#ef4444'];
 const DEFAULT_SUBJECTS = ['OE', 'TP', 'OBP', 'LAG']; // preloaded for "Learning"
@@ -36,6 +43,8 @@ const DEFAULT_SETTINGS = {
   lang: /^(bs|hr|sr)\b/i.test(navigator.language || '') ? 'bs' : 'en', // 'en' | 'bs'
   clock: 'auto',                                                     // 'auto' | '24' | '12'
   weekStart: 1,                                                      // 1 = Monday, 0 = Sunday
+  notify: false,                                                     // hourly push reminders
+  deviceId: '',                                                      // random id for the push server
 };
 
 function loadSettings() {
@@ -46,6 +55,8 @@ function loadSettings() {
       lang: ['en', 'bs'].includes(s.lang) ? s.lang : DEFAULT_SETTINGS.lang,
       clock: ['auto', '24', '12'].includes(s.clock) ? s.clock : DEFAULT_SETTINGS.clock,
       weekStart: s.weekStart === 0 ? 0 : 1,
+      notify: s.notify === true,
+      deviceId: typeof s.deviceId === 'string' ? s.deviceId : '',
     };
   } catch (e) { return { ...DEFAULT_SETTINGS }; }
 }
@@ -101,6 +112,18 @@ const I18N = {
     restoreQ: 'Restore backup?', restoreMsg: (n) => `This replaces all current data with the backup (${n}).`,
     restored: 'Backup restored', importFailed: 'Import failed', notBackup: 'This file is not a Session Timer backup.',
     version: (v) => `Version ${v}`,
+    // reminders
+    reminders: 'Hourly reminder', on: 'On', off: 'Off',
+    notifyOn: 'You’ll get “Still studying?” every hour a stopwatch is running.',
+    notifyOff: 'Get a notification every hour while a stopwatch is running.',
+    notifyUnsupported: 'Notifications only work when the app is opened from the Home Screen (iPhone: iOS 16.4 or newer).',
+    notifyDenied: 'Notifications are blocked. Allow them in Settings → Notifications → Timer.',
+    notifyNoServer: 'The reminder server isn’t set up yet.',
+    notifyError: (m) => `Couldn’t turn on reminders: ${m}`,
+    stillStudying: 'Still studying?', stillGoing: 'Still going?',
+    checkinMsg: (label, d, since) => `${label} — ${d} since ${since}.`,
+    keepGoing: 'Yes, keep going', iStopped: 'I stopped',
+    whenStopped: 'When did you stop?', stopNow: 'Just now', minAgo: (n) => `${n} min ago`, hourAgo: '1 hour ago',
   },
   bs: {
     timers: 'Tajmeri', newBtn: '+ Novi', back: 'Nazad', subject: 'Predmet', timeBySubject: 'Vrijeme po predmetu',
@@ -142,6 +165,17 @@ const I18N = {
     restoreQ: 'Vratiti rezervnu kopiju?', restoreMsg: (n) => `Ovo zamjenjuje sve trenutne podatke kopijom (${n}).`,
     restored: 'Kopija vraćena', importFailed: 'Uvoz nije uspio', notBackup: 'Ovo nije rezervna kopija Session Timera.',
     version: (v) => `Verzija ${v}`,
+    reminders: 'Podsjetnik svaki sat', on: 'Uključeno', off: 'Isključeno',
+    notifyOn: 'Dobićeš „Da li još učiš?” svaki sat dok štoperica radi.',
+    notifyOff: 'Notifikacija svaki sat dok štoperica radi.',
+    notifyUnsupported: 'Notifikacije rade samo kad je aplikacija otvorena s početnog ekrana (iPhone: iOS 16.4 ili noviji).',
+    notifyDenied: 'Notifikacije su blokirane. Dozvoli ih u Postavke → Obavještenja → Timer.',
+    notifyNoServer: 'Server za podsjetnike još nije postavljen.',
+    notifyError: (m) => `Uključivanje nije uspjelo: ${m}`,
+    stillStudying: 'Da li još učiš?', stillGoing: 'Da li tajmer još radi?',
+    checkinMsg: (label, d, since) => `${label} — ${d} od ${since}.`,
+    keepGoing: 'Da, nastavljam', iStopped: 'Prestao sam',
+    whenStopped: 'Kada si prestao?', stopNow: 'Upravo sada', minAgo: (n) => `prije ${n} min`, hourAgo: 'prije 1 sat',
   },
 };
 
@@ -305,6 +339,7 @@ function load() {
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch (e) { ask({ title: t('couldNotSave'), message: e.message, cancel: false }); }
+  if (typeof schedulePushSync === 'function') schedulePushSync(); // tell the reminder server
 }
 
 let state = load();
@@ -701,8 +736,10 @@ function renderActivities() {
 
 /* ---------- Settings view ---------- */
 function renderSettings() {
+  renderNotifyHint();
   document.querySelectorAll('.seg[data-setting]').forEach((seg) => {
-    const val = String(settings[seg.dataset.setting]);
+    const key = seg.dataset.setting;
+    const val = key === 'notify' ? (settings.notify ? 'on' : 'off') : String(settings[key]);
     seg.querySelectorAll('button').forEach((b) => {
       const on = b.dataset.value === val;
       b.classList.toggle('active', on);
@@ -722,9 +759,11 @@ document.querySelector('.settings').addEventListener('click', (e) => {
   const b = e.target.closest('.seg button');
   if (!b) return;
   const key = b.closest('.seg').dataset.setting;
+  if (key === 'notify') { setNotify(b.dataset.value === 'on'); return; } // must run inside the tap (iOS)
   settings[key] = key === 'weekStart' ? Number(b.dataset.value) : b.dataset.value;
   saveSettings();
   applySettings();
+  if (key === 'lang') schedulePushSync(); // reminder texts follow the language
 });
 
 /* ---------- Rendering / navigation ---------- */
@@ -781,10 +820,16 @@ function tick() {
   });
   if (currentView === 'timer') renderTimerLive();
   updateTitle();
+  if (!document.hidden) runCheckin(); // a new hour passed while the app is open
 }
 
 setInterval(tick, 1000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  render();
+  runCheckin();
+  schedulePushSync(); // re-send in case an earlier sync failed (e.g. offline)
+});
 window.addEventListener('storage', (e) => {
   if (e.key === KEY) { state = load(); render(); }
   if (e.key === SETTINGS_KEY) { settings = loadSettings(); applySettings(); }
@@ -1076,6 +1121,174 @@ $('#import-json').addEventListener('change', async (e) => {
   }
 });
 
+/* ---------- "Still studying?" check-in ----------
+ * Asked when a stopwatch has run another full hour (active time): on opening the app,
+ * while it's open, or when you tap the hourly notification. "I stopped" lets you pick
+ * when you actually stopped, so forgotten time isn't counted.
+ */
+const isLearning = (a) => /learn|study|uč|uci|ucenje/i.test(a.name);
+const fullHours = (s) => Math.floor(dur(s) / HOUR_MS);
+
+function dueCheckin() {
+  return state.sessions.find((s) => s.end === null && !isPaused(s)
+    && activity(s.activityId).type === 'timer'
+    && fullHours(s) >= 1 && fullHours(s) > (s.checkin || 0)) || null;
+}
+
+let checkinOpen = false;
+async function runCheckin(sessionId = null) {
+  if (checkinOpen || document.querySelector('dialog[open]')) return; // never on top of another dialog
+  const s = sessionId
+    ? state.sessions.find((x) => x.id === sessionId && x.end === null)
+    : dueCheckin();
+  if (!s) return;
+  checkinOpen = true;
+  try {
+    const a = activity(s.activityId);
+    const subj = subjectOf(s);
+    const res = await ask({
+      title: isLearning(a) ? t('stillStudying') : t('stillGoing'),
+      message: t('checkinMsg', `${a.name}${subj ? ` · ${subj}` : ''}`, human(dur(s)), timeFmt.format(s.start)),
+      ok: t('keepGoing'), extra: t('iStopped'), cancel: false,
+    });
+    if (s.end !== null) return; // stopped elsewhere meanwhile
+    if (res === 'extra') {
+      const end = await chooseStopTime(s);
+      if (end === null) return;
+      closePauses(s, end);
+      s.end = end;
+    } else {
+      s.checkin = fullHours(s);
+    }
+    save();
+    render();
+  } finally {
+    checkinOpen = false;
+  }
+}
+
+function chooseStopTime(s) {
+  const d = $('#choice-dialog');
+  $('#choice-title').textContent = t('whenStopped');
+  const options = [0, 15, 30, 60].map((m) => ({ m, at: now() - m * 60000 })).filter((o) => o.at > s.start);
+  $('#choice-list').innerHTML = options.map((o) => {
+    const label = o.m === 0 ? t('stopNow') : o.m === 60 ? t('hourAgo') : t('minAgo', o.m);
+    return `<button type="button" class="btn choice" data-at="${o.at}"><span>${label}</span><span class="hint">${timeFmt.format(o.at)}</span></button>`;
+  }).join('');
+  return new Promise((resolve) => {
+    const done = (v) => { d.onclick = null; d.oncancel = null; if (d.open) d.close(); resolve(v); };
+    d.onclick = (e) => {
+      const b = e.target.closest('[data-at]');
+      if (b) done(Number(b.dataset.at));
+      else if (e.target.closest('#choice-cancel')) done(null);
+    };
+    d.oncancel = (e) => { e.preventDefault(); done(null); };
+    d.showModal();
+  });
+}
+
+/* ---------- Hourly reminders (push notifications) ----------
+ * The phone can't run code while the app is closed, so a small server (worker/) sends the
+ * reminders. Whenever timers change, we send it the running stopwatch timers: id, name,
+ * subject, start and paused time. Nothing else leaves the phone.
+ */
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+var pushSyncTimer = null; // `var`: save() may call schedulePushSync() before this line runs
+
+function b64uToBytes(str) {
+  const s = str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4);
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
+
+function reminderTimers() {
+  return state.sessions
+    .filter((s) => s.end === null && activity(s.activityId).type === 'timer')
+    .map((s) => {
+      const open = isPaused(s) ? s.pauses[s.pauses.length - 1] : null;
+      const closed = s.pauses.filter((p) => p !== open).reduce((n, p) => n + Math.max(0, p.end - p.start), 0);
+      return {
+        id: s.id, name: activity(s.activityId).name, subject: subjectOf(s),
+        start: s.start, pausedMs: closed, pausedAt: open ? open.start : null,
+      };
+    });
+}
+
+function schedulePushSync() {
+  if (!settings.notify || !PUSH_SERVER) return;
+  clearTimeout(pushSyncTimer);
+  pushSyncTimer = setTimeout(syncPushNow, 400);
+}
+
+async function syncPushNow() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) { settings.notify = false; saveSettings(); renderSettings(); return; } // permission was removed
+    await fetch(`${PUSH_SERVER}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: settings.deviceId, subscription: sub.toJSON(), lang: settings.lang, timers: reminderTimers() }),
+      keepalive: true,
+    });
+  } catch (e) {
+    console.warn('Reminder sync failed (will retry when the app is opened):', e);
+  }
+}
+
+let notifyMessage = null; // last error/info to show under the setting
+function renderNotifyHint() {
+  const el = $('#notify-hint');
+  if (!el) return;
+  let msg;
+  if (notifyMessage) msg = notifyMessage;
+  else if (!PUSH_SERVER) msg = t('notifyNoServer');
+  else if (!pushSupported()) msg = t('notifyUnsupported');
+  else if (Notification.permission === 'denied') msg = t('notifyDenied');
+  else msg = settings.notify ? t('notifyOn') : t('notifyOff');
+  el.textContent = msg;
+}
+
+async function setNotify(on) {
+  notifyMessage = null;
+  if (!on) {
+    settings.notify = false;
+    saveSettings();
+    renderSettings();
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      if (PUSH_SERVER && settings.deviceId) {
+        await fetch(`${PUSH_SERVER}/unsubscribe`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId: settings.deviceId }),
+        });
+      }
+    } catch (e) { /* turning off locally is what matters */ }
+    return;
+  }
+  if (!PUSH_SERVER) { notifyMessage = t('notifyNoServer'); renderSettings(); return; }
+  if (!pushSupported()) { notifyMessage = t('notifyUnsupported'); renderSettings(); return; }
+  // iOS only shows the permission prompt if this call comes straight from the tap.
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') { notifyMessage = t('notifyDenied'); renderSettings(); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription())
+      || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(VAPID_PUBLIC_KEY) });
+    if (!sub) throw new Error('no subscription');
+    if (!settings.deviceId) settings.deviceId = uid();
+    settings.notify = true;
+    saveSettings();
+    await syncPushNow();
+  } catch (e) {
+    settings.notify = false;
+    saveSettings();
+    notifyMessage = t('notifyError', e.message || String(e));
+  }
+  renderSettings();
+}
+
 /* ---------- Updates ----------
  * iPhone home-screen apps are usually resumed from memory, not reloaded, so they would keep
  * running an old version. Every time the app comes back to the foreground we ask for a new
@@ -1112,3 +1325,21 @@ applyTheme();
 buildFormatters();
 applyI18n();
 show('home');
+
+// Tapping a reminder notification: opens the app with ?checkin=<session>, or (if the app was
+// already open) the service worker sends a message instead.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'checkin') runCheckin(e.data.sessionId || null);
+  });
+}
+{
+  const params = new URLSearchParams(location.search);
+  if (params.has('checkin')) {
+    history.replaceState(null, '', location.pathname);
+    runCheckin(params.get('checkin') || null);
+  } else {
+    runCheckin();
+  }
+}
+schedulePushSync();

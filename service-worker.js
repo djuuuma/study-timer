@@ -4,7 +4,7 @@
 // browser to keep for 10 minutes. Falls back to the cached copy when offline.
 //
 // Bump VERSION on every release; it must match APP_VERSION in app.js.
-const VERSION = '9';
+const VERSION = '10';
 const CACHE = `session-timer-v${VERSION}`;
 const ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.json',
@@ -44,4 +44,35 @@ self.addEventListener('fetch', (e) => {
         (await caches.match(req, { ignoreSearch: true })) ||
         (req.mode === 'navigate' ? caches.match('index.html') : Response.error()))
   );
+});
+
+// ---- Hourly "Still studying?" reminders (sent by the push server in worker/) ----
+self.addEventListener('push', (e) => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (err) { /* show a generic reminder */ }
+  e.waitUntil(self.registration.showNotification(data.title || 'Session Timer', {
+    body: data.body || '',
+    tag: `checkin-${data.sessionId || ''}`, // a newer reminder replaces the older one
+    renotify: true,
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data,
+  }));
+});
+
+// Tap on the notification: focus the open app and ask it to show the check-in,
+// or open the app with ?checkin=<session>.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const sessionId = (e.notification.data && e.notification.data.sessionId) || '';
+  e.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      if ('focus' in client) {
+        client.postMessage({ type: 'checkin', sessionId });
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(new URL(`./?checkin=${encodeURIComponent(sessionId)}`, self.registration.scope).href);
+  })());
 });
