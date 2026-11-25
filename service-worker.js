@@ -4,7 +4,7 @@
 // browser to keep for 10 minutes. Falls back to the cached copy when offline.
 //
 // Bump VERSION on every release; it must match APP_VERSION in app.js.
-const VERSION = '10';
+const VERSION = '11';
 const CACHE = `session-timer-v${VERSION}`;
 const ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.json',

@@ -13,13 +13,13 @@
  * Duration = (end ?? now) - start - paused time, so the timer stays correct across
  * reloads, closed tabs, locked phones and restarts.
  */
-const APP_VERSION = '10'; // bump on every release; must match VERSION in service-worker.js
+const APP_VERSION = '11'; // bump on every release; must match VERSION in service-worker.js
 const KEY = 'session-timer.v1';
 
 // Hourly "Still studying?" reminders (see worker/). Locally the app talks to `wrangler dev`.
 const PUSH_SERVER = ['localhost', '127.0.0.1'].includes(location.hostname)
   ? 'http://localhost:8787'
-  : ''; // set to the deployed worker URL
+  : 'https://study-timer-push.study-timer-push.workers.dev';
 const VAPID_PUBLIC_KEY = 'BB2VZoGjoQvRaLyzNXgNyCdL_gf5m9N2IOJQKLNRhneUbd6rfvpom9v_Yhyu3JUM6Xa3nT6YrwdFjTTobLSRN3w';
 const HOUR_MS = 3600000;
 const SETTINGS_KEY = 'session-timer.settings';
