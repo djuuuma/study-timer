@@ -62,6 +62,15 @@ function normalize(s) {
     if (!a.color) a.color = COLORS[i % COLORS.length];
     if (a.type !== 'streak') a.type = 'timer';
   });
+  // Subjects (stopwatch timers only): activity.subjects = [{ id, name }], session.subjectId
+  s.activities.forEach((a) => {
+    if (!Array.isArray(a.subjects)) a.subjects = [];
+    if (a.lastSubjectId && !a.subjects.some((sb) => sb.id === a.lastSubjectId)) a.lastSubjectId = null;
+  });
+  s.sessions.forEach((x) => {
+    const a = s.activities.find((y) => y.id === x.activityId);
+    if (!x.subjectId || !a.subjects.some((sb) => sb.id === x.subjectId)) x.subjectId = null;
+  });
   if (!ids.has(s.selectedId)) s.selectedId = s.activities[0].id;
   s.version = 2;
   return s;
@@ -93,12 +102,16 @@ save(); // persist any migration
  *   await ask({ title, input: 'current value' })         -> string / null
  *   await ask({ title, message, cancel: false })         -> plain message
  */
-function ask({ title, message = '', ok = 'OK', danger = false, input = null, cancel = true }) {
+function ask({ title, message = '', ok = 'OK', danger = false, input = null, cancel = true, extra = null }) {
   const d = $('#ask-dialog');
   const inp = $('#ask-input');
   const okBtn = $('#ask-ok');
   const cancelBtn = $('#ask-cancel');
+  const extraBtn = $('#ask-extra');
   const wantsText = input !== null;
+  // Optional third button (e.g. "Delete"); resolves to the string 'extra'.
+  extraBtn.hidden = !extra;
+  if (extra) extraBtn.textContent = extra;
 
   $('#ask-title').textContent = title;
   $('#ask-message').textContent = message;
@@ -113,12 +126,14 @@ function ask({ title, message = '', ok = 'OK', danger = false, input = null, can
     const finish = (value) => {
       $('#ask-form').onsubmit = null;
       cancelBtn.onclick = null;
+      extraBtn.onclick = null;
       d.oncancel = null;
       if (d.open) d.close();
       resolve(value);
     };
     $('#ask-form').onsubmit = (e) => { e.preventDefault(); finish(wantsText ? inp.value : true); };
     cancelBtn.onclick = () => finish(wantsText ? null : false);
+    extraBtn.onclick = () => finish('extra');
     d.oncancel = (e) => { e.preventDefault(); finish(wantsText ? null : false); }; // Esc key
     d.showModal();
     if (wantsText) { inp.focus(); inp.select(); }
@@ -134,6 +149,11 @@ const isPaused = (s) => s.end === null && s.pauses.length > 0 && s.pauses[s.paus
 const pad = (n) => String(n).padStart(2, '0');
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const subjectOf = (s) => {
+  if (!s.subjectId) return null;
+  const sb = activity(s.activityId).subjects.find((x) => x.id === s.subjectId);
+  return sb ? sb.name : null;
+};
 
 function pausedMs(s) {
   const lo = s.start, hi = s.end ?? now();
@@ -226,6 +246,8 @@ function sessionItem(s, showActivity) {
     const label = dayLabel(s.start);
     title = label === 'Today' || label === 'Yesterday' ? label : shortDayFmt.format(s.start);
   }
+  const subj = subjectOf(s);
+  if (subj) title += ` · ${esc(subj)}`;
   const brk = pausedMs(s);
   let sub = range(s);
   if (a.type === 'streak') sub += live ? ' · current streak' : ' · streak';
@@ -256,6 +278,8 @@ function homeItem(a) {
       : '<span class="dur idle">Not started</span>';
   } else {
     sub = `Stopwatch · <span data-live-total="${a.id}">${human(timerStats(a.id).total)}</span> total`;
+    const subj = run && subjectOf(run);
+    if (subj) sub += ` · now: ${esc(subj)}`;
     if (paused) right = `<span class="dur paused" data-live-session="${run.id}">${clock(dur(run))}</span>`;
     else if (run) right = `<span class="dur live" data-live-session="${run.id}">${clock(dur(run))}</span>`;
     else right = '<span class="dur idle">Not running</span>';
@@ -306,6 +330,8 @@ function renderTimerLive() {
   if (streak) sub = run ? `Clean since ${dateTimeFmt.format(run.start)}` : 'Not started';
   else if (paused) sub = `Paused · started ${timeFmt.format(run.start)}`;
   else sub = run ? `Started ${timeFmt.format(run.start)}` : 'Not running';
+  const subj = run && subjectOf(run);
+  if (subj) sub += ` · ${subj}`;
   $('#clock-sub').textContent = sub;
 
   if (streak) {
@@ -319,7 +345,7 @@ function renderTimerLive() {
   } else {
     const st = timerStats(sel.id);
     $('#stats').innerHTML = statTiles([
-      ['Total time', human(st.total)],
+      [sel.subjects.length ? 'Total (all subjects)' : 'Total time', human(st.total)],
       ['Sessions', st.count],
       ['Today', human(st.today)],
       ['This week', human(st.week)],
@@ -329,10 +355,51 @@ function renderTimerLive() {
   }
 }
 
+/* ---------- Subjects (stopwatch timers) ---------- */
+// The subject the next session starts with, or the running session's subject.
+function currentSubjectId(sel, run) {
+  return run ? run.subjectId : (sel.lastSubjectId ?? null);
+}
+
+function subjectTotals(sel) {
+  const rows = sel.subjects.map((sb) => ({ id: sb.id, name: sb.name, total: 0, count: 0 }));
+  const none = { id: '', name: 'No subject', total: 0, count: 0 };
+  for (const s of sessionsFor(sel.id)) {
+    const row = rows.find((r) => r.id === s.subjectId) || none;
+    row.total += dur(s);
+    row.count += 1;
+  }
+  if (none.count) rows.push(none);
+  return rows;
+}
+
+function renderSubjects(sel, run) {
+  const isTimer = sel.type === 'timer';
+  $('#subject-row').hidden = !isTimer;
+  $('#by-subject-title').hidden = !isTimer || !sel.subjects.length;
+  if (!isTimer) { $('#by-subject').innerHTML = ''; return; }
+
+  const cur = currentSubjectId(sel, run);
+  $('#subject-chips').innerHTML = sel.subjects.map((sb) =>
+    `<button class="chip${sb.id === cur ? ' selected' : ''}" data-subject="${sb.id}" style="--c:${sel.color}">${esc(sb.name)}</button>`
+  ).join('') + `<button class="chip add-chip" data-add-subject>+ ${sel.subjects.length ? 'Subject' : 'Add subject'}</button>`;
+
+  if (!sel.subjects.length) { $('#by-subject').innerHTML = ''; return; }
+  const rows = subjectTotals(sel);
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  $('#by-subject').innerHTML = rows.map((r) => `<li>
+    <button class="item subject-row" ${r.id ? `data-edit-subject="${r.id}"` : 'disabled'} style="--c:${sel.color}">
+      <span class="bar" style="width:${(r.total / max) * 100}%"></span>
+      <span class="main"><span class="title">${esc(r.name)}</span><span class="sub">${plural(r.count, 'session')}</span></span>
+      <span class="dur" data-live-subject="${sel.id}|${r.id}">${human(r.total)}</span>
+    </button></li>`).join('');
+}
+
 function renderTimer() {
   const sel = activity(state.selectedId);
   const run = runningFor(sel.id);
   $('#detail-title').textContent = sel.name;
+  renderSubjects(sel, run);
   renderControls(sel, run);
   renderTimerLive();
 
@@ -442,6 +509,12 @@ function tick() {
   document.querySelectorAll('[data-live-day]').forEach((el) => {
     el.textContent = human(historyDayTotal(Number(el.dataset.liveDay)));
   });
+  document.querySelectorAll('[data-live-subject]').forEach((el) => {
+    const [aid, sid] = el.dataset.liveSubject.split('|');
+    const a = activity(aid);
+    const row = a && subjectTotals(a).find((r) => r.id === sid);
+    if (row) el.textContent = human(row.total);
+  });
   if (currentView === 'timer') renderTimerLive();
   updateTitle();
 }
@@ -472,9 +545,12 @@ $('#controls').addEventListener('click', async (e) => {
   const t = now();
 
   switch (b.dataset.action) {
-    case 'start':
-      if (!run) state.sessions.push({ id: uid(), activityId: sel.id, start: t, end: null, pauses: [] });
+    case 'start': {
+      if (run) break;
+      const subjectId = sel.type === 'timer' ? currentSubjectId(sel, null) : null;
+      state.sessions.push({ id: uid(), activityId: sel.id, start: t, end: null, pauses: [], subjectId });
       break;
+    }
     case 'pause':
       if (run && !isPaused(run)) run.pauses.push({ start: t, end: null });
       break;
@@ -503,7 +579,68 @@ $('#controls').addEventListener('click', async (e) => {
   render();
 });
 
+/* ---------- Subject actions ---------- */
+$('#subject-chips').addEventListener('click', async (e) => {
+  const sel = activity(state.selectedId);
+  const run = runningFor(sel.id);
+
+  if (e.target.closest('[data-add-subject]')) {
+    const name = await ask({ title: 'New subject', message: 'e.g. Math, English, Programming', input: '', ok: 'Add' });
+    if (!name || !name.trim()) return;
+    const sb = { id: uid(), name: name.trim().slice(0, 40) };
+    sel.subjects.push(sb);
+    sel.lastSubjectId = sb.id;
+    if (run) run.subjectId = sb.id;
+    save();
+    render();
+    return;
+  }
+
+  const chip = e.target.closest('[data-subject]');
+  if (!chip) return;
+  // Tapping the selected subject again clears it. While running, this changes the current session's subject.
+  const id = chip.dataset.subject === currentSubjectId(sel, run) ? null : chip.dataset.subject;
+  sel.lastSubjectId = id;
+  if (run) run.subjectId = id;
+  save();
+  render();
+});
+
+$('#by-subject').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-edit-subject]');
+  if (!b) return;
+  const sel = activity(state.selectedId);
+  const sb = sel.subjects.find((x) => x.id === b.dataset.editSubject);
+  const res = await ask({ title: 'Edit subject', input: sb.name, ok: 'Save', extra: 'Delete' });
+  if (res === 'extra') {
+    const n = state.sessions.filter((s) => s.subjectId === sb.id).length;
+    const ok = await ask({
+      title: `Delete subject "${sb.name}"?`,
+      message: n ? `Its ${plural(n, 'session')} will be kept, without a subject.` : '',
+      ok: 'Delete', danger: true,
+    });
+    if (!ok) return;
+    sel.subjects = sel.subjects.filter((x) => x.id !== sb.id);
+    state.sessions.forEach((s) => { if (s.subjectId === sb.id) s.subjectId = null; });
+    if (sel.lastSubjectId === sb.id) sel.lastSubjectId = null;
+  } else if (res && res.trim()) {
+    sb.name = res.trim().slice(0, 40);
+  } else return;
+  save();
+  render();
+});
+
 /* ---------- Session dialog (edit / add) ---------- */
+function fillSubjectSelect(activityId, value) {
+  const a = activity(activityId);
+  const show = a.type === 'timer' && a.subjects.length > 0;
+  $('#sd-subject-label').hidden = !show;
+  $('#sd-subject').innerHTML = '<option value="">No subject</option>' +
+    a.subjects.map((sb) => `<option value="${sb.id}">${esc(sb.name)}</option>`).join('');
+  $('#sd-subject').value = show && value && a.subjects.some((sb) => sb.id === value) ? value : '';
+}
+$('#sd-activity').addEventListener('change', (e) => fillSubjectSelect(e.target.value, null));
+
 const dlg = $('#session-dialog');
 let editingId = null;
 
@@ -519,6 +656,8 @@ function openSession(id) {
   $('#sd-title').textContent = s ? 'Edit session' : 'Add session';
   $('#sd-activity').innerHTML = state.activities.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
   $('#sd-activity').value = s ? s.activityId : defaultActivity;
+  const actId = $('#sd-activity').value;
+  fillSubjectSelect(actId, s ? s.subjectId : activity(actId).lastSubjectId);
   $('#sd-start').value = toLocalInput(s ? s.start : now() - 3600000);
   $('#sd-end').value = s ? (s.end === null ? '' : toLocalInput(s.end)) : toLocalInput(now());
   $('#sd-delete').hidden = !s;
@@ -544,12 +683,13 @@ $('#session-form').addEventListener('submit', (e) => {
     if (other && other.id !== editingId) return dialogError('This timer already has a running session.');
   }
 
+  const subjectId = $('#sd-subject-label').hidden ? null : ($('#sd-subject').value || null);
   if (editingId) {
     const s = state.sessions.find((x) => x.id === editingId);
-    Object.assign(s, { activityId, start, end });
+    Object.assign(s, { activityId, start, end, subjectId });
     if (end !== null) closePauses(s, end);
   } else {
-    state.sessions.push({ id: uid(), activityId, start, end, pauses: [] });
+    state.sessions.push({ id: uid(), activityId, start, end, pauses: [], subjectId });
   }
   save();
   dlg.close();
@@ -638,10 +778,10 @@ $('#export-json').addEventListener('click', () =>
   saveFile(`session-timer-${stamp()}.json`, JSON.stringify(state, null, 2), 'application/json'));
 
 $('#export-csv').addEventListener('click', () => {
-  const rows = [['activity', 'type', 'start', 'end', 'duration_minutes', 'paused_minutes']];
+  const rows = [['activity', 'subject', 'type', 'start', 'end', 'duration_minutes', 'paused_minutes']];
   for (const s of [...state.sessions].sort((a, b) => a.start - b.start)) {
     const a = activity(s.activityId);
-    rows.push([a.name, a.type, localStamp(s.start), s.end === null ? '' : localStamp(s.end),
+    rows.push([a.name, subjectOf(s) || '', a.type, localStamp(s.start), s.end === null ? '' : localStamp(s.end),
       (dur(s) / 60000).toFixed(1), (pausedMs(s) / 60000).toFixed(1)]);
   }
   saveFile(`session-timer-${stamp()}.csv`, rows.map((r) => r.map(csvCell).join(',')).join('\n'), 'text/csv');

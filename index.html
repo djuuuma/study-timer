@@ -33,6 +33,11 @@
         <h1 id="detail-title"></h1>
       </header>
 
+      <div id="subject-row" class="subject-row-wrap" hidden>
+        <div class="label-small">Subject</div>
+        <div id="subject-chips" class="chips"></div>
+      </div>
+
       <div class="clock-wrap">
         <div id="clock" class="clock">0:00:00</div>
         <div id="clock-sub" class="clock-sub">Not running</div>
@@ -41,6 +46,9 @@
       <div id="controls" class="controls"></div>
 
       <div id="stats" class="stats"></div>
+
+      <h2 id="by-subject-title" hidden>Time by subject</h2>
+      <ul id="by-subject" class="list"></ul>
 
       <h2 id="recent-title">Recent sessions</h2>
       <ul id="recent" class="list"></ul>
@@ -92,7 +100,8 @@
   <dialog id="session-dialog">
     <form id="session-form">
       <h2 id="sd-title">Edit session</h2>
-      <label>Activity <select id="sd-activity"></select></label>
+      <label>Timer <select id="sd-activity"></select></label>
+      <label id="sd-subject-label">Subject <select id="sd-subject"></select></label>
       <label>Start <input type="datetime-local" id="sd-start" step="1" required></label>
       <label>End <input type="datetime-local" id="sd-end" step="1"></label>
       <p class="hint">Leave End empty if the session is still running.</p>
@@ -113,6 +122,7 @@
       <p id="ask-message" class="ask-message"></p>
       <input id="ask-input" maxlength="40" hidden>
       <div class="row">
+        <button type="button" id="ask-extra" class="btn danger" hidden></button>
         <span class="spacer"></span>
         <button type="button" id="ask-cancel" class="btn">Cancel</button>
         <button type="submit" id="ask-ok" class="btn primary">OK</button>
