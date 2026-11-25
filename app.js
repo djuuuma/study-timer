@@ -15,6 +15,8 @@
  */
 const KEY = 'session-timer.v1';
 const COLORS = ['#4f8cff', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#ef4444'];
+const DEFAULT_SUBJECTS = ['OE', 'TP', 'OBP', 'LAG']; // preloaded for "Learning"
+const DATA_VERSION = 3;
 const DEFAULT_STREAKS = [
   { name: 'No junk food', color: '#22c55e' },
   { name: 'No smoking', color: '#14b8a6' },
@@ -27,9 +29,10 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID()
 function defaultState() {
   const id = uid();
   return {
-    version: 2,
+    version: DATA_VERSION,
     activities: [
-      { id, name: 'Learning', color: COLORS[0], type: 'timer' },
+      { id, name: 'Learning', color: COLORS[0], type: 'timer',
+        subjects: DEFAULT_SUBJECTS.map((name) => ({ id: uid(), name })) },
       ...DEFAULT_STREAKS.map((a) => ({ id: uid(), ...a, type: 'streak' })),
     ],
     sessions: [],
@@ -67,12 +70,23 @@ function normalize(s) {
     if (!Array.isArray(a.subjects)) a.subjects = [];
     if (a.lastSubjectId && !a.subjects.some((sb) => sb.id === a.lastSubjectId)) a.lastSubjectId = null;
   });
+  // v2 -> v3: preload the default subjects into "Learning" once (keeps any you already added).
+  if ((s.version || 1) < 3) {
+    const learning = s.activities.find((a) => a.type === 'timer' && a.name.toLowerCase() === 'learning');
+    if (learning) {
+      for (const name of DEFAULT_SUBJECTS) {
+        if (!learning.subjects.some((sb) => sb.name.toLowerCase() === name.toLowerCase())) {
+          learning.subjects.push({ id: uid(), name });
+        }
+      }
+    }
+  }
   s.sessions.forEach((x) => {
     const a = s.activities.find((y) => y.id === x.activityId);
     if (!x.subjectId || !a.subjects.some((sb) => sb.id === x.subjectId)) x.subjectId = null;
   });
   if (!ids.has(s.selectedId)) s.selectedId = s.activities[0].id;
-  s.version = 2;
+  s.version = DATA_VERSION;
   return s;
 }
 
