@@ -267,7 +267,7 @@ function sessionItem(s, showActivity) {
   if (a.type === 'streak') sub += live ? ' · current streak' : ' · streak';
   else if (paused) sub += ' · paused';
   else if (brk >= 1000) sub += ` · ${human(brk)} paused`;
-  const cls = paused ? ' paused' : live ? ' live' : '';
+  const cls = paused ? ' paused' : live ? (a.type === 'streak' ? ' streak' : ' live') : '';
   const liveAttr = live ? ` data-live-session="${s.id}"` : '';
   return `<li><button class="item" data-session="${s.id}" style="--c:${a.color}">
     <span class="dot"></span>
@@ -278,6 +278,19 @@ function sessionItem(s, showActivity) {
 
 const statTiles = (rows) => rows.map(([l, v]) =>
   `<div class="stat"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+
+/* ---------- Icons (inline SVG, purely visual) ---------- */
+const svg = (body, fill = false) =>
+  `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="${fill ? 'none' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const ICONS = {
+  stopwatch: svg('<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5M12 2.5V6"/>'),
+  flame: svg('<path d="M12 3c.8 2.8 4.5 5 4.5 9.5a4.5 4.5 0 0 1-9 0c0-2.2 1.2-3.7 2.2-4.7.3 1.5 1 2.3 1.8 2.7 0-2.8-.9-5 .5-7.5z"/>'),
+  chevron: svg('<path d="M9 5l7 7-7 7"/>'),
+  play: svg('<path d="M8 5.2v13.6a1 1 0 0 0 1.5.9l10.6-6.8a1 1 0 0 0 0-1.7L9.5 4.3A1 1 0 0 0 8 5.2z"/>', true),
+  pause: svg('<rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/>', true),
+  stop: svg('<rect x="6" y="6" width="12" height="12" rx="2.5"/>', true),
+  reset: svg('<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/>'),
+};
 
 /* ---------- Home (main menu) ---------- */
 function homeItem(a) {
@@ -298,14 +311,17 @@ function homeItem(a) {
     else if (run) right = `<span class="dur live" data-live-session="${run.id}">${clock(dur(run))}</span>`;
     else right = '<span class="dur idle">Not running</span>';
   }
-  return `<li><button class="item" data-open="${a.id}" style="--c:${a.color}">
-    <span class="dot"></span>
+  const stateCls = run ? (paused ? ' is-running is-paused' : ' is-running') : '';
+  return `<li><button class="item${stateCls}" data-open="${a.id}" style="--c:${a.color}">
+    <span class="badge">${a.type === 'streak' ? ICONS.flame : ICONS.stopwatch}</span>
     <span class="main"><span class="title">${esc(a.name)}</span><span class="sub">${sub}</span></span>
-    ${right}<span class="chev">&rsaquo;</span>
+    ${right}<span class="chev">${ICONS.chevron}</span>
   </button></li>`;
 }
 
+const homeDateFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 function renderHome() {
+  $('#home-date').textContent = homeDateFmt.format(now());
   $('#home-list').innerHTML = state.activities.map(homeItem).join('');
 }
 
@@ -315,13 +331,13 @@ function renderControls(sel, run) {
   let html;
   if (sel.type === 'streak') {
     html = run
-      ? '<button class="big-btn ghost" data-action="slip">I slipped – reset</button>'
-      : '<button class="big-btn" data-action="start">Start streak</button>';
+      ? `<button class="big-btn ghost" data-action="slip">${ICONS.reset}I slipped – reset</button>`
+      : `<button class="big-btn" data-action="start">${ICONS.play}Start streak</button>`;
   } else if (!run) {
-    html = '<button class="big-btn" data-action="start">Start</button>';
+    html = `<button class="big-btn" data-action="start">${ICONS.play}Start</button>`;
   } else {
-    html = `<button class="big-btn pause" data-action="${paused ? 'resume' : 'pause'}">${paused ? 'Resume' : 'Pause'}</button>
-      <button class="big-btn stop" data-action="stop">Stop</button>`;
+    html = `<button class="big-btn pause" data-action="${paused ? 'resume' : 'pause'}">${paused ? ICONS.play + 'Resume' : ICONS.pause + 'Pause'}</button>
+      <button class="big-btn stop" data-action="stop">${ICONS.stop}Stop</button>`;
   }
   const box = $('#controls');
   box.innerHTML = html;
@@ -339,6 +355,9 @@ function renderTimerLive() {
   c.textContent = clock(elapsed);
   c.classList.toggle('long', elapsed >= 86400000);
   c.classList.toggle('paused', !!paused);
+  const ring = $('.clock-wrap');
+  ring.classList.toggle('running', !!run && !paused);
+  ring.classList.toggle('paused', !!paused);
 
   let sub;
   if (streak) sub = run ? `Clean since ${dateTimeFmt.format(run.start)}` : 'Not started';
@@ -413,6 +432,9 @@ function renderTimer() {
   const sel = activity(state.selectedId);
   const run = runningFor(sel.id);
   $('#detail-title').textContent = sel.name;
+  // Activity colour for the ring, buttons and highlights; line the ring's sweep up with the seconds.
+  $('#view-timer').style.setProperty('--c', sel.color);
+  $('.clock-wrap').style.setProperty('--sweep-delay', `-${run ? (dur(run) % 60000) / 1000 : 0}s`);
   renderSubjects(sel, run);
   renderControls(sel, run);
   renderTimerLive();
