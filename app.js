@@ -14,6 +14,7 @@
  * reloads, closed tabs, locked phones and restarts.
  */
 const KEY = 'session-timer.v1';
+const SETTINGS_KEY = 'session-timer.settings';
 const COLORS = ['#4f8cff', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#ef4444'];
 const DEFAULT_SUBJECTS = ['OE', 'TP', 'OBP', 'LAG']; // preloaded for "Learning"
 const DATA_VERSION = 3;
@@ -26,6 +27,202 @@ const $ = (s) => document.querySelector(s);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
   : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
+/* ---------- Settings (theme, language, time format, week start) ----------
+ * Stored separately from your timer data, so backups/imports never change them.
+ */
+const DEFAULT_SETTINGS = {
+  theme: 'system',                                                   // 'system' | 'light' | 'dark'
+  lang: /^(bs|hr|sr)\b/i.test(navigator.language || '') ? 'bs' : 'en', // 'en' | 'bs'
+  clock: 'auto',                                                     // 'auto' | '24' | '12'
+  weekStart: 1,                                                      // 1 = Monday, 0 = Sunday
+};
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    return {
+      theme: ['system', 'light', 'dark'].includes(s.theme) ? s.theme : DEFAULT_SETTINGS.theme,
+      lang: ['en', 'bs'].includes(s.lang) ? s.lang : DEFAULT_SETTINGS.lang,
+      clock: ['auto', '24', '12'].includes(s.clock) ? s.clock : DEFAULT_SETTINGS.clock,
+      weekStart: s.weekStart === 0 ? 0 : 1,
+    };
+  } catch (e) { return { ...DEFAULT_SETTINGS }; }
+}
+let settings = loadSettings();
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* not critical */ }
+}
+
+/* ---------- Translations ---------- */
+const I18N = {
+  en: {
+    timers: 'Timers', newBtn: '+ New', back: 'Back', subject: 'Subject', timeBySubject: 'Time by subject',
+    recentSessions: 'Recent sessions', recentStreaks: 'Recent streaks',
+    history: 'History', addBtn: '+ Add', filter: 'Filter', allTimers: 'All timers', noSessions: 'No sessions yet.',
+    manage: 'Manage', newTimerPh: 'New timer, e.g. Reading', type: 'Type',
+    typeTimer: 'Stopwatch (track time spent)', typeStreak: 'Streak (time since last slip)', add: 'Add',
+    settings: 'Settings', appearance: 'Appearance', themeSystem: 'System', themeLight: 'Light', themeDark: 'Dark',
+    language: 'Language', timeFormat: 'Time format', auto: 'Auto', weekStart: 'Week starts on',
+    monday: 'Monday', sunday: 'Sunday',
+    backup: 'Backup', exportJson: 'Export JSON', exportCsv: 'Export CSV', importJson: 'Import JSON',
+    backupHint: 'Your data is stored only on this device. Export a JSON backup now and then — Import restores it.',
+    timer: 'Timer', startLabel: 'Start', endLabel: 'End', endHint: 'Leave End empty if the session is still running.',
+    editSession: 'Edit session', addSession: 'Add session',
+    delete: 'Delete', cancel: 'Cancel', save: 'Save', ok: 'OK', rename: 'Rename', reset: 'Reset', replace: 'Replace',
+    // states
+    notStarted: 'Not started', notRunning: 'Not running', today: 'Today', yesterday: 'Yesterday', now: 'now',
+    stopwatch: 'Stopwatch', streak: 'Streak', total: (x) => `${x} total`, nowSubject: (x) => `now: ${x}`,
+    best: (x) => `best ${x}`, currentStreakTag: 'current streak', streakTag: 'streak', pausedTag: 'paused',
+    pausedFor: (x) => `${x} paused`, cleanSince: (x) => `Clean since ${x}`,
+    pausedStarted: (x) => `Paused · started ${x}`, started: (x) => `Started ${x}`,
+    currentX: (x) => `current ${x}`, notStartedLower: 'not started',
+    // buttons
+    slipBtn: 'I slipped – reset', startStreak: 'Start streak', start: 'Start', resume: 'Resume', pause: 'Pause', stop: 'Stop',
+    // stats
+    currentStreak: 'Current streak', longestStreak: 'Longest streak', slips: 'Slips', averageStreak: 'Average streak',
+    totalAll: 'Total (all subjects)', totalTime: 'Total time', sessions: 'Sessions', thisWeek: 'This week',
+    averageSession: 'Average session', longestSession: 'Longest session',
+    // subjects
+    noSubject: 'No subject', subjectChip: '+ Subject', addSubjectChip: '+ Add subject',
+    newSubject: 'New subject', subjectExample: 'e.g. Math, English, Programming', editSubject: 'Edit subject',
+    deleteSubjectQ: (x) => `Delete subject "${x}"?`,
+    subjectKept: (n) => `Its ${n} will be kept, without a subject.`,
+    // dialogs
+    couldNotSave: 'Could not save',
+    resetQ: (x) => `Reset "${x}"?`,
+    resetMsg: (x) => `Your current streak of ${x} will be saved to history and a new streak starts now.`,
+    errStart: 'Please enter a valid start time.', errEnd: 'Please enter a valid end time.',
+    errOrder: 'End must be after start.', errFuture: 'Start cannot be in the future.',
+    errRunning: 'This timer already has a running session.',
+    deleteSessionQ: 'Delete this session?', cannotUndo: 'This cannot be undone.',
+    renameTimer: 'Rename timer', cantDelete: 'Can’t delete', needOne: 'You need at least one timer.',
+    deleteQ: (x) => `Delete "${x}"?`, deleteMsg: (n) => `This also deletes its ${n}. This cannot be undone.`,
+    restoreQ: 'Restore backup?', restoreMsg: (n) => `This replaces all current data with the backup (${n}).`,
+    restored: 'Backup restored', importFailed: 'Import failed', notBackup: 'This file is not a Session Timer backup.',
+  },
+  bs: {
+    timers: 'Tajmeri', newBtn: '+ Novi', back: 'Nazad', subject: 'Predmet', timeBySubject: 'Vrijeme po predmetu',
+    recentSessions: 'Nedavne sesije', recentStreaks: 'Nedavni nizovi',
+    history: 'Historija', addBtn: '+ Dodaj', filter: 'Filter', allTimers: 'Svi tajmeri', noSessions: 'Još nema sesija.',
+    manage: 'Upravljanje', newTimerPh: 'Novi tajmer, npr. Čitanje', type: 'Vrsta',
+    typeTimer: 'Štoperica (utrošeno vrijeme)', typeStreak: 'Niz (vrijeme bez posrtaja)', add: 'Dodaj',
+    settings: 'Postavke', appearance: 'Izgled', themeSystem: 'Sistem', themeLight: 'Svijetlo', themeDark: 'Tamno',
+    language: 'Jezik', timeFormat: 'Format vremena', auto: 'Auto', weekStart: 'Sedmica počinje',
+    monday: 'Ponedjeljak', sunday: 'Nedjelja',
+    backup: 'Rezervna kopija', exportJson: 'Izvezi JSON', exportCsv: 'Izvezi CSV', importJson: 'Uvezi JSON',
+    backupHint: 'Podaci se čuvaju samo na ovom uređaju. Povremeno izvezi JSON kopiju — Uvoz je vraća.',
+    timer: 'Tajmer', startLabel: 'Početak', endLabel: 'Kraj', endHint: 'Ostavi Kraj prazno ako sesija još traje.',
+    editSession: 'Uredi sesiju', addSession: 'Dodaj sesiju',
+    delete: 'Obriši', cancel: 'Otkaži', save: 'Sačuvaj', ok: 'U redu', rename: 'Preimenuj', reset: 'Resetuj', replace: 'Zamijeni',
+    notStarted: 'Nije pokrenuto', notRunning: 'Ne radi', today: 'Danas', yesterday: 'Jučer', now: 'sada',
+    stopwatch: 'Štoperica', streak: 'Niz', total: (x) => `ukupno ${x}`, nowSubject: (x) => `sada: ${x}`,
+    best: (x) => `najbolje ${x}`, currentStreakTag: 'trenutni niz', streakTag: 'niz', pausedTag: 'pauzirano',
+    pausedFor: (x) => `pauza ${x}`, cleanSince: (x) => `Čist od ${x}`,
+    pausedStarted: (x) => `Pauzirano · počelo ${x}`, started: (x) => `Počelo ${x}`,
+    currentX: (x) => `trenutno ${x}`, notStartedLower: 'nije pokrenut',
+    slipBtn: 'Posrnuo sam – resetuj', startStreak: 'Pokreni niz', start: 'Pokreni', resume: 'Nastavi', pause: 'Pauza', stop: 'Zaustavi',
+    currentStreak: 'Trenutni niz', longestStreak: 'Najduži niz', slips: 'Posrtaji', averageStreak: 'Prosječni niz',
+    totalAll: 'Ukupno (svi predmeti)', totalTime: 'Ukupno vrijeme', sessions: 'Sesije', thisWeek: 'Ove sedmice',
+    averageSession: 'Prosječna sesija', longestSession: 'Najduža sesija',
+    noSubject: 'Bez predmeta', subjectChip: '+ Predmet', addSubjectChip: '+ Dodaj predmet',
+    newSubject: 'Novi predmet', subjectExample: 'npr. Matematika, Engleski, Programiranje', editSubject: 'Uredi predmet',
+    deleteSubjectQ: (x) => `Obrisati predmet "${x}"?`,
+    subjectKept: (n) => `Sesije ovog predmeta (${n}) ostaju, ali bez predmeta.`,
+    couldNotSave: 'Nije moguće sačuvati',
+    resetQ: (x) => `Resetovati "${x}"?`,
+    resetMsg: (x) => `Tvoj trenutni niz od ${x} biće sačuvan u historiji, a novi niz počinje sada.`,
+    errStart: 'Unesi ispravno vrijeme početka.', errEnd: 'Unesi ispravno vrijeme kraja.',
+    errOrder: 'Kraj mora biti nakon početka.', errFuture: 'Početak ne može biti u budućnosti.',
+    errRunning: 'Ovaj tajmer već ima aktivnu sesiju.',
+    deleteSessionQ: 'Obrisati ovu sesiju?', cannotUndo: 'Ovo se ne može poništiti.',
+    renameTimer: 'Preimenuj tajmer', cantDelete: 'Nije moguće obrisati', needOne: 'Potreban je barem jedan tajmer.',
+    deleteQ: (x) => `Obrisati "${x}"?`, deleteMsg: (n) => `Ovo briše i njegove sesije (${n}). Ne može se poništiti.`,
+    restoreQ: 'Vratiti rezervnu kopiju?', restoreMsg: (n) => `Ovo zamjenjuje sve trenutne podatke kopijom (${n}).`,
+    restored: 'Kopija vraćena', importFailed: 'Uvoz nije uspio', notBackup: 'Ovo nije rezervna kopija Session Timera.',
+  },
+};
+
+function t(key, ...args) {
+  const v = I18N[settings.lang][key] ?? I18N.en[key] ?? key;
+  return typeof v === 'function' ? v(...args) : v;
+}
+
+// Plural nouns: English has 2 forms, Bosnian 3 (1 sesija, 2 sesije, 5 sesija).
+const NOUNS = {
+  en: { session: ['session', 'sessions'], slip: ['slip', 'slips'] },
+  bs: { session: ['sesija', 'sesije', 'sesija'], slip: ['posrtaj', 'posrtaja', 'posrtaja'] },
+};
+function plural(n, noun) {
+  const f = NOUNS[settings.lang][noun];
+  if (settings.lang === 'en') return `${n} ${n === 1 ? f[0] : f[1]}`;
+  const d = n % 10, h = n % 100;
+  const form = d === 1 && h !== 11 ? f[0] : d >= 2 && d <= 4 && (h < 12 || h > 14) ? f[1] : f[2];
+  return `${n} ${form}`;
+}
+
+// Translate the static parts of the page (elements tagged with data-i18n*).
+function applyI18n() {
+  document.documentElement.lang = settings.lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+}
+
+/* ---------- Date/time formatting (follows language + time format settings) ---------- */
+let timeFmt, dateTimeFmt, dayFmt, shortDayFmt, homeDateFmt;
+
+// Bosnian names are built in, because some browsers ship without Bosnian calendar data
+// (they print things like "M11 25, Wed").
+const BS_DATES = {
+  weekdays: ['nedjelja', 'ponedjeljak', 'utorak', 'srijeda', 'četvrtak', 'petak', 'subota'],
+  months: ['januar', 'februar', 'mart', 'april', 'maj', 'juni', 'juli', 'august', 'septembar', 'oktobar', 'novembar', 'decembar'],
+  monthsShort: ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'],
+};
+
+function buildFormatters() {
+  if (settings.lang === 'bs') {
+    const use12 = settings.clock === '12';
+    const time = (x) => {
+      const d = new Date(x), h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+      return use12 ? `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}` : `${String(h).padStart(2, '0')}:${m}`;
+    };
+    const shortDay = (x) => { const d = new Date(x); return `${d.getDate()}. ${BS_DATES.monthsShort[d.getMonth()]}`; };
+    timeFmt = { format: time };                                                     // 22:51
+    dateTimeFmt = { format: (x) => `${shortDay(x)} ${time(x)}` };                   // 25. nov 22:51
+    shortDayFmt = { format: shortDay };                                             // 25. nov
+    dayFmt = { format: (x) => `${BS_DATES.weekdays[new Date(x).getDay()]}, ${shortDay(x)}` }; // srijeda, 25. nov
+    homeDateFmt = { format: (x) => {                                                // srijeda, 25. novembar
+      const d = new Date(x);
+      return `${BS_DATES.weekdays[d.getDay()]}, ${d.getDate()}. ${BS_DATES.months[d.getMonth()]}`;
+    } };
+    return;
+  }
+  const locale = 'en-US';
+  const hc = settings.clock === '24' ? { hourCycle: 'h23' } : settings.clock === '12' ? { hourCycle: 'h12' } : {};
+  const make = (opts) => {
+    try { return new Intl.DateTimeFormat(locale, opts); } catch (e) { return new Intl.DateTimeFormat(undefined, opts); }
+  };
+  timeFmt = make({ hour: '2-digit', minute: '2-digit', ...hc });
+  dateTimeFmt = make({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', ...hc });
+  dayFmt = make({ weekday: 'long', month: 'short', day: 'numeric' });
+  shortDayFmt = make({ month: 'short', day: 'numeric' });
+  homeDateFmt = make({ weekday: 'long', day: 'numeric', month: 'long' });
+}
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/* ---------- Theme ---------- */
+function applyTheme() {
+  const root = document.documentElement;
+  if (settings.theme === 'system') delete root.dataset.theme;
+  else root.dataset.theme = settings.theme;
+  const dark = settings.theme === 'dark'
+    || (settings.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = dark ? '#0b0d12' : '#f3f5f9';
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+
+/* ---------- Data ---------- */
 function defaultState() {
   const id = uid();
   return {
@@ -103,7 +300,7 @@ function load() {
 
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
-  catch (e) { ask({ title: 'Could not save', message: e.message, cancel: false }); }
+  catch (e) { ask({ title: t('couldNotSave'), message: e.message, cancel: false }); }
 }
 
 let state = load();
@@ -116,7 +313,7 @@ save(); // persist any migration
  *   await ask({ title, input: 'current value' })         -> string / null
  *   await ask({ title, message, cancel: false })         -> plain message
  */
-function ask({ title, message = '', ok = 'OK', danger = false, input = null, cancel = true, extra = null }) {
+function ask({ title, message = '', ok = t('ok'), danger = false, input = null, cancel = true, extra = null }) {
   const d = $('#ask-dialog');
   const inp = $('#ask-input');
   const okBtn = $('#ask-ok');
@@ -161,8 +358,7 @@ const runningFor = (activityId) => state.sessions.find((s) => s.activityId === a
 const sessionsFor = (activityId) => state.sessions.filter((s) => !activityId || s.activityId === activityId);
 const isPaused = (s) => s.end === null && s.pauses.length > 0 && s.pauses[s.pauses.length - 1].end === null;
 const pad = (n) => String(n).padStart(2, '0');
-const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const subjectOf = (s) => {
   if (!s.subjectId) return null;
   const sb = activity(s.activityId).subjects.find((x) => x.id === s.subjectId);
@@ -176,11 +372,11 @@ function pausedMs(s) {
 const dur = (s) => Math.max(0, (s.end ?? now()) - s.start - pausedMs(s));
 
 function clock(ms) {
-  const t = Math.max(0, Math.floor(ms / 1000));
-  const d = Math.floor(t / 86400);
-  const hms = `${pad(Math.floor((t % 86400) / 3600))}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`;
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(sec / 86400);
+  const hms = `${pad(Math.floor((sec % 86400) / 3600))}:${pad(Math.floor((sec % 3600) / 60))}:${pad(sec % 60)}`;
   if (d) return `${d}d ${hms}`;
-  return `${Math.floor(t / 3600)}:${hms.slice(3)}`;
+  return `${Math.floor(sec / 3600)}:${hms.slice(3)}`;
 }
 
 function human(ms) {
@@ -191,32 +387,32 @@ function human(ms) {
   return h ? `${h}h ${m % 60}m` : `${m}m`;
 }
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
-const dateTimeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-const shortDayFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
-
-function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
-function startOfWeek(t) { // Monday
-  const d = new Date(startOfDay(t));
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+function startOfDay(x) { const d = new Date(x); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function startOfWeek(x) {
+  const d = new Date(startOfDay(x));
+  d.setDate(d.getDate() - ((d.getDay() - settings.weekStart + 7) % 7));
   return d.getTime();
 }
 
-function dayLabel(t) {
+// Returns 'today' / 'yesterday' / null, so callers can compare without depending on the language.
+function relDay(x) {
   const today = startOfDay(now());
-  const day = startOfDay(t);
+  const day = startOfDay(x);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (day === today) return 'Today';
-  if (day === yesterday.getTime()) return 'Yesterday';
-  return dayFmt.format(t);
+  if (day === today) return 'today';
+  if (day === yesterday.getTime()) return 'yesterday';
+  return null;
+}
+function dayLabel(x) {
+  const r = relDay(x);
+  return r ? t(r) : cap(dayFmt.format(x));
 }
 
 function range(s) {
   const multiDay = startOfDay(s.start) !== startOfDay(s.end ?? now());
   const f = multiDay ? dateTimeFmt : timeFmt;
-  return `${f.format(s.start)} – ${s.end === null ? 'now' : f.format(s.end)}`;
+  return `${f.format(s.start)} – ${s.end === null ? t('now') : f.format(s.end)}`;
 }
 
 function timerStats(activityId) {
@@ -257,16 +453,16 @@ function sessionItem(s, showActivity) {
   const paused = isPaused(s);
   let title = esc(a.name);
   if (!showActivity) {
-    const label = dayLabel(s.start);
-    title = label === 'Today' || label === 'Yesterday' ? label : shortDayFmt.format(s.start);
+    const r = relDay(s.start);
+    title = r ? t(r) : shortDayFmt.format(s.start);
   }
   const subj = subjectOf(s);
   if (subj) title += ` · ${esc(subj)}`;
   const brk = pausedMs(s);
   let sub = range(s);
-  if (a.type === 'streak') sub += live ? ' · current streak' : ' · streak';
-  else if (paused) sub += ' · paused';
-  else if (brk >= 1000) sub += ` · ${human(brk)} paused`;
+  if (a.type === 'streak') sub += ` · ${live ? t('currentStreakTag') : t('streakTag')}`;
+  else if (paused) sub += ` · ${t('pausedTag')}`;
+  else if (brk >= 1000) sub += ` · ${t('pausedFor', human(brk))}`;
   const cls = paused ? ' paused' : live ? (a.type === 'streak' ? ' streak' : ' live') : '';
   const liveAttr = live ? ` data-live-session="${s.id}"` : '';
   return `<li><button class="item" data-session="${s.id}" style="--c:${a.color}">
@@ -299,17 +495,17 @@ function homeItem(a) {
   let sub, right;
   if (a.type === 'streak') {
     const st = streakStats(a.id);
-    sub = `Streak · ${plural(st.slips, 'slip')}${st.longest ? ` · best ${human(st.longest)}` : ''}`;
+    sub = `${t('streak')} · ${plural(st.slips, 'slip')}${st.longest ? ` · ${t('best', human(st.longest))}` : ''}`;
     right = run
       ? `<span class="dur streak" data-live-session="${run.id}">${clock(dur(run))}</span>`
-      : '<span class="dur idle">Not started</span>';
+      : `<span class="dur idle">${t('notStarted')}</span>`;
   } else {
-    sub = `Stopwatch · <span data-live-total="${a.id}">${human(timerStats(a.id).total)}</span> total`;
+    sub = `${t('stopwatch')} · ${t('total', `<span data-live-total="${a.id}">${human(timerStats(a.id).total)}</span>`)}`;
     const subj = run && subjectOf(run);
-    if (subj) sub += ` · now: ${esc(subj)}`;
+    if (subj) sub += ` · ${t('nowSubject', esc(subj))}`;
     if (paused) right = `<span class="dur paused" data-live-session="${run.id}">${clock(dur(run))}</span>`;
     else if (run) right = `<span class="dur live" data-live-session="${run.id}">${clock(dur(run))}</span>`;
-    else right = '<span class="dur idle">Not running</span>';
+    else right = `<span class="dur idle">${t('notRunning')}</span>`;
   }
   const stateCls = run ? (paused ? ' is-running is-paused' : ' is-running') : '';
   return `<li><button class="item${stateCls}" data-open="${a.id}" style="--c:${a.color}">
@@ -319,9 +515,8 @@ function homeItem(a) {
   </button></li>`;
 }
 
-const homeDateFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 function renderHome() {
-  $('#home-date').textContent = homeDateFmt.format(now());
+  $('#home-date').textContent = cap(homeDateFmt.format(now()));
   $('#home-list').innerHTML = state.activities.map(homeItem).join('');
 }
 
@@ -331,13 +526,13 @@ function renderControls(sel, run) {
   let html;
   if (sel.type === 'streak') {
     html = run
-      ? `<button class="big-btn ghost" data-action="slip">${ICONS.reset}I slipped – reset</button>`
-      : `<button class="big-btn" data-action="start">${ICONS.play}Start streak</button>`;
+      ? `<button class="big-btn ghost" data-action="slip">${ICONS.reset}${t('slipBtn')}</button>`
+      : `<button class="big-btn" data-action="start">${ICONS.play}${t('startStreak')}</button>`;
   } else if (!run) {
-    html = `<button class="big-btn" data-action="start">${ICONS.play}Start</button>`;
+    html = `<button class="big-btn" data-action="start">${ICONS.play}${t('start')}</button>`;
   } else {
-    html = `<button class="big-btn pause" data-action="${paused ? 'resume' : 'pause'}">${paused ? ICONS.play + 'Resume' : ICONS.pause + 'Pause'}</button>
-      <button class="big-btn stop" data-action="stop">${ICONS.stop}Stop</button>`;
+    html = `<button class="big-btn pause" data-action="${paused ? 'resume' : 'pause'}">${paused ? ICONS.play + t('resume') : ICONS.pause + t('pause')}</button>
+      <button class="big-btn stop" data-action="stop">${ICONS.stop}${t('stop')}</button>`;
   }
   const box = $('#controls');
   box.innerHTML = html;
@@ -360,9 +555,9 @@ function renderTimerLive() {
   ring.classList.toggle('paused', !!paused);
 
   let sub;
-  if (streak) sub = run ? `Clean since ${dateTimeFmt.format(run.start)}` : 'Not started';
-  else if (paused) sub = `Paused · started ${timeFmt.format(run.start)}`;
-  else sub = run ? `Started ${timeFmt.format(run.start)}` : 'Not running';
+  if (streak) sub = run ? t('cleanSince', dateTimeFmt.format(run.start)) : t('notStarted');
+  else if (paused) sub = t('pausedStarted', timeFmt.format(run.start));
+  else sub = run ? t('started', timeFmt.format(run.start)) : t('notRunning');
   const subj = run && subjectOf(run);
   if (subj) sub += ` · ${subj}`;
   $('#clock-sub').textContent = sub;
@@ -370,20 +565,20 @@ function renderTimerLive() {
   if (streak) {
     const st = streakStats(sel.id);
     $('#stats').innerHTML = statTiles([
-      ['Current streak', run ? human(st.current) : '–'],
-      ['Longest streak', st.longest ? human(st.longest) : '–'],
-      ['Slips', st.slips],
-      ['Average streak', st.avg ? human(st.avg) : '–'],
+      [t('currentStreak'), run ? human(st.current) : '–'],
+      [t('longestStreak'), st.longest ? human(st.longest) : '–'],
+      [t('slips'), st.slips],
+      [t('averageStreak'), st.avg ? human(st.avg) : '–'],
     ]);
   } else {
     const st = timerStats(sel.id);
     $('#stats').innerHTML = statTiles([
-      [sel.subjects.length ? 'Total (all subjects)' : 'Total time', human(st.total)],
-      ['Sessions', st.count],
-      ['Today', human(st.today)],
-      ['This week', human(st.week)],
-      ['Average session', st.avg ? human(st.avg) : '–'],
-      ['Longest session', st.longest ? human(st.longest) : '–'],
+      [sel.subjects.length ? t('totalAll') : t('totalTime'), human(st.total)],
+      [t('sessions'), st.count],
+      [t('today'), human(st.today)],
+      [t('thisWeek'), human(st.week)],
+      [t('averageSession'), st.avg ? human(st.avg) : '–'],
+      [t('longestSession'), st.longest ? human(st.longest) : '–'],
     ]);
   }
 }
@@ -396,7 +591,7 @@ function currentSubjectId(sel, run) {
 
 function subjectTotals(sel) {
   const rows = sel.subjects.map((sb) => ({ id: sb.id, name: sb.name, total: 0, count: 0 }));
-  const none = { id: '', name: 'No subject', total: 0, count: 0 };
+  const none = { id: '', name: t('noSubject'), total: 0, count: 0 };
   for (const s of sessionsFor(sel.id)) {
     const row = rows.find((r) => r.id === s.subjectId) || none;
     row.total += dur(s);
@@ -415,7 +610,7 @@ function renderSubjects(sel, run) {
   const cur = currentSubjectId(sel, run);
   $('#subject-chips').innerHTML = sel.subjects.map((sb) =>
     `<button class="chip${sb.id === cur ? ' selected' : ''}" data-subject="${sb.id}" style="--c:${sel.color}">${esc(sb.name)}</button>`
-  ).join('') + `<button class="chip add-chip" data-add-subject>+ ${sel.subjects.length ? 'Subject' : 'Add subject'}</button>`;
+  ).join('') + `<button class="chip add-chip" data-add-subject>${sel.subjects.length ? t('subjectChip') : t('addSubjectChip')}</button>`;
 
   if (!sel.subjects.length) { $('#by-subject').innerHTML = ''; return; }
   const rows = subjectTotals(sel);
@@ -441,7 +636,7 @@ function renderTimer() {
 
   const recent = sessionsFor(sel.id).sort((a, b) => b.start - a.start).slice(0, 5);
   $('#recent').innerHTML = recent.map((s) => sessionItem(s, false)).join('');
-  $('#recent-title').textContent = sel.type === 'streak' ? 'Recent streaks' : 'Recent sessions';
+  $('#recent-title').textContent = sel.type === 'streak' ? t('recentStreaks') : t('recentSessions');
   $('#recent-title').hidden = !recent.length;
 }
 
@@ -451,18 +646,18 @@ let historyFilter = 'all';
 function historyDayTotal(day) {
   return sessionsFor(historyFilter === 'all' ? null : historyFilter)
     .filter((s) => startOfDay(s.start) === day && activity(s.activityId).type === 'timer')
-    .reduce((t, s) => t + dur(s), 0);
+    .reduce((sum, s) => sum + dur(s), 0);
 }
 
 function renderHistory() {
   const filter = $('#history-filter');
   if (historyFilter !== 'all' && !activity(historyFilter)) historyFilter = 'all';
-  filter.innerHTML = `<option value="all">All timers</option>` +
+  filter.innerHTML = `<option value="all">${t('allTimers')}</option>` +
     state.activities.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
   filter.value = historyFilter;
 
   const list = sessionsFor(historyFilter === 'all' ? null : historyFilter).sort((a, b) => b.start - a.start);
-  if (!list.length) { $('#history').innerHTML = '<p class="empty">No sessions yet.</p>'; return; }
+  if (!list.length) { $('#history').innerHTML = `<p class="empty">${t('noSessions')}</p>`; return; }
 
   const groups = new Map();
   for (const s of list) {
@@ -485,19 +680,48 @@ function renderActivities() {
     let sub;
     if (a.type === 'streak') {
       const st = streakStats(a.id);
-      sub = `Streak · ${st.current ? 'current ' + human(st.current) : 'not started'} · ${plural(st.slips, 'slip')}`;
+      sub = `${t('streak')} · ${st.current ? t('currentX', human(st.current)) : t('notStartedLower')} · ${plural(st.slips, 'slip')}`;
     } else {
       const st = timerStats(a.id);
-      sub = `Stopwatch · ${human(st.total)} · ${plural(st.count, 'session')}`;
+      sub = `${t('stopwatch')} · ${human(st.total)} · ${plural(st.count, 'session')}`;
     }
     return `<li><div class="item" style="--c:${a.color}">
       <span class="dot"></span>
       <span class="main"><span class="title">${esc(a.name)}</span><span class="sub">${sub}</span></span>
-      <button class="btn small" data-rename="${a.id}">Rename</button>
-      <button class="btn small danger" data-delete="${a.id}">Delete</button>
+      <button class="btn small" data-rename="${a.id}">${t('rename')}</button>
+      <button class="btn small danger" data-delete="${a.id}">${t('delete')}</button>
     </div></li>`;
   }).join('');
+  renderSettings();
 }
+
+/* ---------- Settings view ---------- */
+function renderSettings() {
+  document.querySelectorAll('.seg[data-setting]').forEach((seg) => {
+    const val = String(settings[seg.dataset.setting]);
+    seg.querySelectorAll('button').forEach((b) => {
+      const on = b.dataset.value === val;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on);
+    });
+  });
+}
+
+function applySettings() {
+  applyTheme();
+  buildFormatters();
+  applyI18n();
+  render();
+}
+
+document.querySelector('.settings').addEventListener('click', (e) => {
+  const b = e.target.closest('.seg button');
+  if (!b) return;
+  const key = b.closest('.seg').dataset.setting;
+  settings[key] = key === 'weekStart' ? Number(b.dataset.value) : b.dataset.value;
+  saveSettings();
+  applySettings();
+});
 
 /* ---------- Rendering / navigation ---------- */
 const VIEWS = ['home', 'timer', 'history', 'activities'];
@@ -557,7 +781,10 @@ function tick() {
 
 setInterval(tick, 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
-window.addEventListener('storage', (e) => { if (e.key === KEY) { state = load(); render(); } });
+window.addEventListener('storage', (e) => {
+  if (e.key === KEY) { state = load(); render(); }
+  if (e.key === SETTINGS_KEY) { settings = loadSettings(); applySettings(); }
+});
 
 document.querySelector('.tabs').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-view]');
@@ -578,30 +805,30 @@ $('#controls').addEventListener('click', async (e) => {
   if (!b) return;
   const sel = activity(state.selectedId);
   const run = runningFor(sel.id);
-  const t = now();
+  const at0 = now();
 
   switch (b.dataset.action) {
     case 'start': {
       if (run) break;
       const subjectId = sel.type === 'timer' ? currentSubjectId(sel, null) : null;
-      state.sessions.push({ id: uid(), activityId: sel.id, start: t, end: null, pauses: [], subjectId });
+      state.sessions.push({ id: uid(), activityId: sel.id, start: at0, end: null, pauses: [], subjectId });
       break;
     }
     case 'pause':
-      if (run && !isPaused(run)) run.pauses.push({ start: t, end: null });
+      if (run && !isPaused(run)) run.pauses.push({ start: at0, end: null });
       break;
     case 'resume':
-      if (run) closePauses(run, t);
+      if (run) closePauses(run, at0);
       break;
     case 'stop':
-      if (run) { closePauses(run, t); run.end = t; }
+      if (run) { closePauses(run, at0); run.end = at0; }
       break;
     case 'slip': {
       if (!run) break;
       const ok = await ask({
-        title: `Reset "${sel.name}"?`,
-        message: `Your current streak of ${human(dur(run))} will be saved to history and a new streak starts now.`,
-        ok: 'Reset', danger: true,
+        title: t('resetQ', sel.name),
+        message: t('resetMsg', human(dur(run))),
+        ok: t('reset'), danger: true,
       });
       if (!ok) return;
       const at = now();
@@ -621,7 +848,7 @@ $('#subject-chips').addEventListener('click', async (e) => {
   const run = runningFor(sel.id);
 
   if (e.target.closest('[data-add-subject]')) {
-    const name = await ask({ title: 'New subject', message: 'e.g. Math, English, Programming', input: '', ok: 'Add' });
+    const name = await ask({ title: t('newSubject'), message: t('subjectExample'), input: '', ok: t('add') });
     if (!name || !name.trim()) return;
     const sb = { id: uid(), name: name.trim().slice(0, 40) };
     sel.subjects.push(sb);
@@ -647,13 +874,13 @@ $('#by-subject').addEventListener('click', async (e) => {
   if (!b) return;
   const sel = activity(state.selectedId);
   const sb = sel.subjects.find((x) => x.id === b.dataset.editSubject);
-  const res = await ask({ title: 'Edit subject', input: sb.name, ok: 'Save', extra: 'Delete' });
+  const res = await ask({ title: t('editSubject'), input: sb.name, ok: t('save'), extra: t('delete') });
   if (res === 'extra') {
     const n = state.sessions.filter((s) => s.subjectId === sb.id).length;
     const ok = await ask({
-      title: `Delete subject "${sb.name}"?`,
-      message: n ? `Its ${plural(n, 'session')} will be kept, without a subject.` : '',
-      ok: 'Delete', danger: true,
+      title: t('deleteSubjectQ', sb.name),
+      message: n ? t('subjectKept', plural(n, 'session')) : '',
+      ok: t('delete'), danger: true,
     });
     if (!ok) return;
     sel.subjects = sel.subjects.filter((x) => x.id !== sb.id);
@@ -669,19 +896,19 @@ $('#by-subject').addEventListener('click', async (e) => {
 /* ---------- Session dialog (edit / add) ---------- */
 function fillSubjectSelect(activityId, value) {
   const a = activity(activityId);
-  const show = a.type === 'timer' && a.subjects.length > 0;
-  $('#sd-subject-label').hidden = !show;
-  $('#sd-subject').innerHTML = '<option value="">No subject</option>' +
+  const visible = a.type === 'timer' && a.subjects.length > 0;
+  $('#sd-subject-label').hidden = !visible;
+  $('#sd-subject').innerHTML = `<option value="">${t('noSubject')}</option>` +
     a.subjects.map((sb) => `<option value="${sb.id}">${esc(sb.name)}</option>`).join('');
-  $('#sd-subject').value = show && value && a.subjects.some((sb) => sb.id === value) ? value : '';
+  $('#sd-subject').value = visible && value && a.subjects.some((sb) => sb.id === value) ? value : '';
 }
 $('#sd-activity').addEventListener('change', (e) => fillSubjectSelect(e.target.value, null));
 
 const dlg = $('#session-dialog');
 let editingId = null;
 
-function toLocalInput(t) {
-  const d = new Date(t);
+function toLocalInput(x) {
+  const d = new Date(x);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
@@ -689,7 +916,7 @@ function openSession(id) {
   editingId = id;
   const s = id ? state.sessions.find((x) => x.id === id) : null;
   const defaultActivity = historyFilter !== 'all' && currentView === 'history' ? historyFilter : state.selectedId;
-  $('#sd-title').textContent = s ? 'Edit session' : 'Add session';
+  $('#sd-title').textContent = s ? t('editSession') : t('addSession');
   $('#sd-activity').innerHTML = state.activities.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
   $('#sd-activity').value = s ? s.activityId : defaultActivity;
   const actId = $('#sd-activity').value;
@@ -710,13 +937,13 @@ $('#session-form').addEventListener('submit', (e) => {
   const endVal = $('#sd-end').value;
   const end = endVal ? new Date(endVal).getTime() : null;
 
-  if (!Number.isFinite(start)) return dialogError('Please enter a valid start time.');
-  if (end !== null && !Number.isFinite(end)) return dialogError('Please enter a valid end time.');
-  if (end !== null && end <= start) return dialogError('End must be after start.');
-  if (start > now()) return dialogError('Start cannot be in the future.');
+  if (!Number.isFinite(start)) return dialogError(t('errStart'));
+  if (end !== null && !Number.isFinite(end)) return dialogError(t('errEnd'));
+  if (end !== null && end <= start) return dialogError(t('errOrder'));
+  if (start > now()) return dialogError(t('errFuture'));
   if (end === null) {
     const other = runningFor(activityId);
-    if (other && other.id !== editingId) return dialogError('This timer already has a running session.');
+    if (other && other.id !== editingId) return dialogError(t('errRunning'));
   }
 
   const subjectId = $('#sd-subject-label').hidden ? null : ($('#sd-subject').value || null);
@@ -734,7 +961,7 @@ $('#session-form').addEventListener('submit', (e) => {
 
 $('#sd-cancel').addEventListener('click', () => dlg.close());
 $('#sd-delete').addEventListener('click', async () => {
-  if (!await ask({ title: 'Delete this session?', message: 'This cannot be undone.', ok: 'Delete', danger: true })) return;
+  if (!await ask({ title: t('deleteSessionQ'), message: t('cannotUndo'), ok: t('delete'), danger: true })) return;
   state.sessions = state.sessions.filter((x) => x.id !== editingId);
   save();
   dlg.close();
@@ -755,7 +982,7 @@ $('#add-activity').addEventListener('submit', (e) => {
   const name = input.value.trim();
   if (!name) return;
   const color = COLORS[state.activities.length % COLORS.length];
-  const a = { id: uid(), name, color, type: $('#new-activity-type').value === 'streak' ? 'streak' : 'timer' };
+  const a = { id: uid(), name, color, type: $('#new-activity-type').value === 'streak' ? 'streak' : 'timer', subjects: [] };
   state.activities.push(a);
   input.value = '';
   save();
@@ -767,19 +994,19 @@ $('#activity-list').addEventListener('click', async (e) => {
   const del = e.target.closest('[data-delete]');
   if (ren) {
     const a = activity(ren.dataset.rename);
-    const name = await ask({ title: 'Rename timer', input: a.name, ok: 'Save' });
+    const name = await ask({ title: t('renameTimer'), input: a.name, ok: t('save') });
     if (name && name.trim()) { a.name = name.trim().slice(0, 40); save(); render(); }
   }
   if (del) {
     if (state.activities.length === 1) {
-      return ask({ title: 'Can’t delete', message: 'You need at least one timer.', cancel: false });
+      return ask({ title: t('cantDelete'), message: t('needOne'), cancel: false });
     }
     const a = activity(del.dataset.delete);
     const n = sessionsFor(a.id).length;
     const ok = await ask({
-      title: `Delete "${a.name}"?`,
-      message: `This also deletes its ${plural(n, 'session')}. This cannot be undone.`,
-      ok: 'Delete', danger: true,
+      title: t('deleteQ', a.name),
+      message: t('deleteMsg', plural(n, 'session')),
+      ok: t('delete'), danger: true,
     });
     if (!ok) return;
     state.activities = state.activities.filter((x) => x.id !== a.id);
@@ -808,7 +1035,7 @@ async function saveFile(name, text, type) {
 
 const stamp = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const csvCell = (v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
-const localStamp = (t) => toLocalInput(t).replace('T', ' ');
+const localStamp = (x) => toLocalInput(x).replace('T', ' ');
 
 $('#export-json').addEventListener('click', () =>
   saveFile(`session-timer-${stamp()}.json`, JSON.stringify(state, null, 2), 'application/json'));
@@ -829,19 +1056,19 @@ $('#import-json').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    if (!isValidState(data)) throw new Error('This file is not a Session Timer backup.');
+    if (!isValidState(data)) throw new Error(t('notBackup'));
     const ok = await ask({
-      title: 'Restore backup?',
-      message: `This replaces all current data with the backup (${plural(data.sessions.length, 'session')}).`,
-      ok: 'Replace', danger: true,
+      title: t('restoreQ'),
+      message: t('restoreMsg', plural(data.sessions.length, 'session')),
+      ok: t('replace'), danger: true,
     });
     if (!ok) return;
     state = normalize(data);
     save();
     render();
-    ask({ title: 'Backup restored', cancel: false });
+    ask({ title: t('restored'), cancel: false });
   } catch (err) {
-    ask({ title: 'Import failed', message: err.message, cancel: false });
+    ask({ title: t('importFailed'), message: err.message, cancel: false });
   }
 });
 
@@ -850,4 +1077,7 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
 }
+applyTheme();
+buildFormatters();
+applyI18n();
 show('home');

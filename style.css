@@ -16,8 +16,9 @@
   --radius: 18px;
   color-scheme: light dark;
 }
+/* Dark palette: follows the phone unless Settings forces light or dark (html[data-theme]). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0b0d12;
     --bg-glow: rgba(79, 140, 255, .13);
     --card: #151922;
@@ -29,6 +30,19 @@
     --shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 10px 30px -12px rgba(0, 0, 0, .6);
   }
 }
+:root[data-theme="dark"] {
+  --bg: #0b0d12;
+  --bg-glow: rgba(79, 140, 255, .13);
+  --card: #151922;
+  --card-2: #1c212c;
+  --line: rgba(255, 255, 255, .07);
+  --text: #eef1f6;
+  --muted: #8b93a3;
+  --tabbar: rgba(17, 20, 27, .78);
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 10px 30px -12px rgba(0, 0, 0, .6);
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 /* ============ Base ============ */
 * { box-sizing: border-box; }
@@ -242,6 +256,21 @@ button.item:active { background: var(--card-2); }
 
 /* Manage */
 #activity-list .item { cursor: default; }
+
+/* Settings */
+.settings .setting {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 10px; padding: 12px 16px;
+}
+.settings .setting + .setting { border-top: 1px solid var(--line); }
+.setting-label { font-weight: 600; }
+.seg { display: inline-flex; background: var(--card-2); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button {
+  border: 0; background: none; cursor: pointer; border-radius: 9px;
+  padding: 7px 12px; font-size: 14px; font-weight: 600; color: var(--muted);
+  transition: background .15s ease, color .15s ease;
+}
+.seg button.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
 
 /* Credit footer */
 .credit { text-align: center; color: var(--muted); font-size: 13px; margin-top: 40px; }

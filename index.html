@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f1115">
+  <meta name="theme-color" content="#0b0d12">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,6 +11,13 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon-192.png">
+  <script>
+    // Apply the saved light/dark choice before the page paints (no flash).
+    try {
+      var st = JSON.parse(localStorage.getItem('session-timer.settings') || '{}');
+      if (st.theme === 'light' || st.theme === 'dark') document.documentElement.dataset.theme = st.theme;
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="style.css">
   <title>Session Timer</title>
 </head>
@@ -19,9 +26,9 @@
     <!-- HOME: list of all timers -->
     <section id="view-home" class="view">
       <header class="row">
-        <h1>Timers</h1>
+        <h1 data-i18n="timers">Timers</h1>
         <span class="spacer"></span>
-        <button id="home-new" class="btn pill">+ New</button>
+        <button id="home-new" class="btn pill" data-i18n="newBtn">+ New</button>
       </header>
       <p id="home-date" class="date-line"></p>
       <ul id="home-list" class="list home-list"></ul>
@@ -30,27 +37,27 @@
     <!-- DETAIL: one timer -->
     <section id="view-timer" class="view" hidden>
       <header class="row detail-head">
-        <button id="back" class="btn back-btn" aria-label="Back">
+        <button id="back" class="btn back-btn" data-i18n-aria="back" aria-label="Back">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
         </button>
         <h1 id="detail-title"></h1>
       </header>
 
       <div id="subject-row" class="subject-row-wrap" hidden>
-        <div class="label-small">Subject</div>
+        <div class="label-small" data-i18n="subject">Subject</div>
         <div id="subject-chips" class="chips"></div>
       </div>
 
       <div class="clock-wrap">
         <div id="clock" class="clock">0:00:00</div>
-        <div id="clock-sub" class="clock-sub">Not running</div>
+        <div id="clock-sub" class="clock-sub"></div>
       </div>
 
       <div id="controls" class="controls"></div>
 
       <div id="stats" class="stats"></div>
 
-      <h2 id="by-subject-title" hidden>Time by subject</h2>
+      <h2 id="by-subject-title" data-i18n="timeBySubject" hidden>Time by subject</h2>
       <ul id="by-subject" class="list"></ul>
 
       <h2 id="recent-title">Recent sessions</h2>
@@ -60,36 +67,70 @@
     <!-- HISTORY -->
     <section id="view-history" class="view" hidden>
       <header class="row">
-        <h1>History</h1>
+        <h1 data-i18n="history">History</h1>
         <span class="spacer"></span>
-        <button id="add-session" class="btn pill">+ Add</button>
+        <button id="add-session" class="btn pill" data-i18n="addBtn">+ Add</button>
       </header>
-      <select id="history-filter" aria-label="Filter by activity"></select>
+      <select id="history-filter" data-i18n-aria="filter" aria-label="Filter"></select>
       <div id="history"></div>
     </section>
 
     <!-- MANAGE -->
     <section id="view-activities" class="view" hidden>
-      <h1>Manage</h1>
+      <h1 data-i18n="manage">Manage</h1>
       <ul id="activity-list" class="list"></ul>
       <form id="add-activity">
-        <input id="new-activity" placeholder="New timer, e.g. Reading" maxlength="40" required>
+        <input id="new-activity" data-i18n-placeholder="newTimerPh" placeholder="New timer, e.g. Reading" maxlength="40" required>
         <div class="row">
-          <select id="new-activity-type" aria-label="Type">
-            <option value="timer">Stopwatch (track time spent)</option>
-            <option value="streak">Streak (time since last slip)</option>
+          <select id="new-activity-type" data-i18n-aria="type" aria-label="Type">
+            <option value="timer" data-i18n="typeTimer">Stopwatch (track time spent)</option>
+            <option value="streak" data-i18n="typeStreak">Streak (time since last slip)</option>
           </select>
-          <button class="btn primary">Add</button>
+          <button class="btn primary" data-i18n="add">Add</button>
         </div>
       </form>
 
-      <h2>Backup</h2>
-      <div class="row wrap">
-        <button id="export-json" class="btn">Export JSON</button>
-        <button id="export-csv" class="btn">Export CSV</button>
-        <label class="btn">Import JSON<input id="import-json" type="file" accept="application/json,.json" hidden></label>
+      <h2 data-i18n="settings">Settings</h2>
+      <div class="list settings">
+        <div class="setting">
+          <span class="setting-label" data-i18n="appearance">Appearance</span>
+          <div class="seg" data-setting="theme">
+            <button data-value="system" data-i18n="themeSystem">System</button>
+            <button data-value="light" data-i18n="themeLight">Light</button>
+            <button data-value="dark" data-i18n="themeDark">Dark</button>
+          </div>
+        </div>
+        <div class="setting">
+          <span class="setting-label" data-i18n="language">Language</span>
+          <div class="seg" data-setting="lang">
+            <button data-value="en">English</button>
+            <button data-value="bs">Bosanski</button>
+          </div>
+        </div>
+        <div class="setting">
+          <span class="setting-label" data-i18n="timeFormat">Time format</span>
+          <div class="seg" data-setting="clock">
+            <button data-value="auto" data-i18n="auto">Auto</button>
+            <button data-value="24">24h</button>
+            <button data-value="12">12h</button>
+          </div>
+        </div>
+        <div class="setting">
+          <span class="setting-label" data-i18n="weekStart">Week starts on</span>
+          <div class="seg" data-setting="weekStart">
+            <button data-value="1" data-i18n="monday">Monday</button>
+            <button data-value="0" data-i18n="sunday">Sunday</button>
+          </div>
+        </div>
       </div>
-      <p class="hint">Your data is stored only on this device. Export a JSON backup now and then &mdash; Import restores it.</p>
+
+      <h2 data-i18n="backup">Backup</h2>
+      <div class="row wrap">
+        <button id="export-json" class="btn" data-i18n="exportJson">Export JSON</button>
+        <button id="export-csv" class="btn" data-i18n="exportCsv">Export CSV</button>
+        <label class="btn"><span data-i18n="importJson">Import JSON</span><input id="import-json" type="file" accept="application/json,.json" hidden></label>
+      </div>
+      <p class="hint" data-i18n="backupHint">Your data is stored only on this device. Export a JSON backup now and then — Import restores it.</p>
     </section>
 
     <footer class="credit">
@@ -100,15 +141,15 @@
   <nav class="tabs">
     <button data-view="home" class="active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5M12 2.5V6"/></svg>
-      Timers
+      <span data-i18n="timers">Timers</span>
     </button>
     <button data-view="history">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M12 7.5V12l3 2"/></svg>
-      History
+      <span data-i18n="history">History</span>
     </button>
     <button data-view="activities">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-      Manage
+      <span data-i18n="manage">Manage</span>
     </button>
   </nav>
 
@@ -116,17 +157,17 @@
   <dialog id="session-dialog">
     <form id="session-form">
       <h2 id="sd-title">Edit session</h2>
-      <label>Timer <select id="sd-activity"></select></label>
-      <label id="sd-subject-label">Subject <select id="sd-subject"></select></label>
-      <label>Start <input type="datetime-local" id="sd-start" step="1" required></label>
-      <label>End <input type="datetime-local" id="sd-end" step="1"></label>
-      <p class="hint">Leave End empty if the session is still running.</p>
+      <label><span data-i18n="timer">Timer</span> <select id="sd-activity"></select></label>
+      <label id="sd-subject-label"><span data-i18n="subject">Subject</span> <select id="sd-subject"></select></label>
+      <label><span data-i18n="startLabel">Start</span> <input type="datetime-local" id="sd-start" step="1" required></label>
+      <label><span data-i18n="endLabel">End</span> <input type="datetime-local" id="sd-end" step="1"></label>
+      <p class="hint" data-i18n="endHint">Leave End empty if the session is still running.</p>
       <p id="sd-error" class="error" hidden></p>
       <div class="row">
-        <button type="button" id="sd-delete" class="btn danger">Delete</button>
+        <button type="button" id="sd-delete" class="btn danger" data-i18n="delete">Delete</button>
         <span class="spacer"></span>
-        <button type="button" id="sd-cancel" class="btn">Cancel</button>
-        <button type="submit" class="btn primary">Save</button>
+        <button type="button" id="sd-cancel" class="btn" data-i18n="cancel">Cancel</button>
+        <button type="submit" class="btn primary" data-i18n="save">Save</button>
       </div>
     </form>
   </dialog>
@@ -140,7 +181,7 @@
       <div class="row">
         <button type="button" id="ask-extra" class="btn danger" hidden></button>
         <span class="spacer"></span>
-        <button type="button" id="ask-cancel" class="btn">Cancel</button>
+        <button type="button" id="ask-cancel" class="btn" data-i18n="cancel">Cancel</button>
         <button type="submit" id="ask-ok" class="btn primary">OK</button>
       </div>
     </form>
