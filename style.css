@@ -141,6 +141,11 @@ input, select {
 #history-filter { margin-bottom: 8px; }
 .day-head { display: flex; justify-content: space-between; margin: 20px 4px 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
 
+/* Credit footer */
+.credit { text-align: center; color: var(--muted); font-size: 13px; margin-top: 36px; }
+.credit a { color: var(--accent); text-decoration: none; font-weight: 500; }
+.credit a:hover { text-decoration: underline; }
+
 /* Tabs */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0;

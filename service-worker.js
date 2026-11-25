@@ -1,6 +1,6 @@
 // Offline support. Network-first, so updates you push show up on the next
 // launch; falls back to the cached copy when offline.
-const CACHE = 'session-timer-v5';
+const CACHE = 'session-timer-v6';
 const ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.json',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
