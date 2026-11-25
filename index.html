@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Timer">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <title>Session Timer</title>
+</head>
+<body>
+  <main>
+    <!-- HOME: list of all timers -->
+    <section id="view-home" class="view">
+      <header class="row">
+        <h1>Timers</h1>
+        <span class="spacer"></span>
+        <button id="home-new" class="btn">+ New</button>
+      </header>
+      <ul id="home-list" class="list home-list"></ul>
+    </section>
+
+    <!-- DETAIL: one timer -->
+    <section id="view-timer" class="view" hidden>
+      <header class="row detail-head">
+        <button id="back" class="btn">&lsaquo; Back</button>
+        <h1 id="detail-title"></h1>
+      </header>
+
+      <div class="clock-wrap">
+        <div id="clock" class="clock">0:00:00</div>
+        <div id="clock-sub" class="clock-sub">Not running</div>
+      </div>
+
+      <div id="controls" class="controls"></div>
+
+      <div id="stats" class="stats"></div>
+
+      <h2 id="recent-title">Recent sessions</h2>
+      <ul id="recent" class="list"></ul>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="view-history" class="view" hidden>
+      <header class="row">
+        <h1>History</h1>
+        <span class="spacer"></span>
+        <button id="add-session" class="btn">+ Add</button>
+      </header>
+      <select id="history-filter" aria-label="Filter by activity"></select>
+      <div id="history"></div>
+    </section>
+
+    <!-- MANAGE -->
+    <section id="view-activities" class="view" hidden>
+      <h1>Manage</h1>
+      <ul id="activity-list" class="list"></ul>
+      <form id="add-activity">
+        <input id="new-activity" placeholder="New timer, e.g. Reading" maxlength="40" required>
+        <div class="row">
+          <select id="new-activity-type" aria-label="Type">
+            <option value="timer">Stopwatch (track time spent)</option>
+            <option value="streak">Streak (time since last slip)</option>
+          </select>
+          <button class="btn primary">Add</button>
+        </div>
+      </form>
+
+      <h2>Backup</h2>
+      <div class="row wrap">
+        <button id="export-json" class="btn">Export JSON</button>
+        <button id="export-csv" class="btn">Export CSV</button>
+        <label class="btn">Import JSON<input id="import-json" type="file" accept="application/json,.json" hidden></label>
+      </div>
+      <p class="hint">Your data is stored only on this device. Export a JSON backup now and then &mdash; Import restores it.</p>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="home" class="active">Timers</button>
+    <button data-view="history">History</button>
+    <button data-view="activities">Manage</button>
+  </nav>
+
+  <!-- Edit / add session -->
+  <dialog id="session-dialog">
+    <form id="session-form">
+      <h2 id="sd-title">Edit session</h2>
+      <label>Activity <select id="sd-activity"></select></label>
+      <label>Start <input type="datetime-local" id="sd-start" step="1" required></label>
+      <label>End <input type="datetime-local" id="sd-end" step="1"></label>
+      <p class="hint">Leave End empty if the session is still running.</p>
+      <p id="sd-error" class="error" hidden></p>
+      <div class="row">
+        <button type="button" id="sd-delete" class="btn danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="sd-cancel" class="btn">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Generic confirm / prompt / message (replaces browser pop-ups, which some browsers block) -->
+  <dialog id="ask-dialog">
+    <form id="ask-form">
+      <h2 id="ask-title"></h2>
+      <p id="ask-message" class="ask-message"></p>
+      <input id="ask-input" maxlength="40" hidden>
+      <div class="row">
+        <span class="spacer"></span>
+        <button type="button" id="ask-cancel" class="btn">Cancel</button>
+        <button type="submit" id="ask-ok" class="btn primary">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
