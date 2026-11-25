@@ -13,6 +13,7 @@
  * Duration = (end ?? now) - start - paused time, so the timer stays correct across
  * reloads, closed tabs, locked phones and restarts.
  */
+const APP_VERSION = '9'; // bump on every release; must match VERSION in service-worker.js
 const KEY = 'session-timer.v1';
 const SETTINGS_KEY = 'session-timer.settings';
 const COLORS = ['#4f8cff', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#ef4444'];
@@ -99,6 +100,7 @@ const I18N = {
     deleteQ: (x) => `Delete "${x}"?`, deleteMsg: (n) => `This also deletes its ${n}. This cannot be undone.`,
     restoreQ: 'Restore backup?', restoreMsg: (n) => `This replaces all current data with the backup (${n}).`,
     restored: 'Backup restored', importFailed: 'Import failed', notBackup: 'This file is not a Session Timer backup.',
+    version: (v) => `Version ${v}`,
   },
   bs: {
     timers: 'Tajmeri', newBtn: '+ Novi', back: 'Nazad', subject: 'Predmet', timeBySubject: 'Vrijeme po predmetu',
@@ -139,6 +141,7 @@ const I18N = {
     deleteQ: (x) => `Obrisati "${x}"?`, deleteMsg: (n) => `Ovo briše i njegove sesije (${n}). Ne može se poništiti.`,
     restoreQ: 'Vratiti rezervnu kopiju?', restoreMsg: (n) => `Ovo zamjenjuje sve trenutne podatke kopijom (${n}).`,
     restored: 'Kopija vraćena', importFailed: 'Uvoz nije uspio', notBackup: 'Ovo nije rezervna kopija Session Timera.',
+    version: (v) => `Verzija ${v}`,
   },
 };
 
@@ -166,6 +169,7 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+  $('#app-version').textContent = t('version', APP_VERSION);
 }
 
 /* ---------- Date/time formatting (follows language + time format settings) ---------- */
@@ -1072,11 +1076,38 @@ $('#import-json').addEventListener('change', async (e) => {
   }
 });
 
+/* ---------- Updates ----------
+ * iPhone home-screen apps are usually resumed from memory, not reloaded, so they would keep
+ * running an old version. Every time the app comes back to the foreground we ask for a new
+ * service worker; when one takes over, the page reloads itself (after any open dialog closes).
+ * Your data is not touched by an update.
+ */
+function setupUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  const reloadWhenIdle = () => {
+    if (document.querySelector('dialog[open]')) { setTimeout(reloadWhenIdle, 1500); return; }
+    location.reload();
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return; // first install: nothing old to replace
+    reloading = true;
+    reloadWhenIdle();
+  });
+  navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' })
+    .then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+      window.addEventListener('focus', check);
+      setInterval(check, 30 * 60 * 1000);
+    })
+    .catch(console.error);
+}
+
 /* ---------- Startup ---------- */
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(console.error));
-}
+setupUpdates();
 applyTheme();
 buildFormatters();
 applyI18n();
